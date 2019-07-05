@@ -33,6 +33,10 @@ df <- read.csv("data/raw/teaching_training_data.csv")
 
 # Look at the data - what do we see?
 
+table(df$gender)
+
+unique_individuals <- df %>% 
+  distinct(unid, gender)
 
 # WRANGLING & FEATURE ENGINEERING ====
 
@@ -98,7 +102,7 @@ ggplot(data = df) +
 # A different approach
 
 ggplot(data = df) + 
-  geom_density(mapping = aes(x = age, fill = gender), alpha = 0.3)
+  geom_density(mapping = aes(x = age_at_survey, fill = gender), alpha = 0.3)
 
 # NAs and older people cloud our view
 
@@ -118,6 +122,12 @@ df <- df %>%
   group_by(unid) %>% 
   mutate(total_surveys = max(survey_num)) %>% 
   ungroup()
+
+df_unid <- df %>% 
+  group_by(unid) %>% 
+  summarise(total_surveys = max(survey_num)) %>% 
+  ungroup()
+
 
 # Always good practise to ungroup() since later you might forget that you have grouped and operations willbe affected by it
 
