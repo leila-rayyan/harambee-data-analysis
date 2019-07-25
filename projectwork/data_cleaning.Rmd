@@ -1,0 +1,229 @@
+---
+title: "iX Project - Shiv"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = "/Users/shiv/Desktop/iX/ix_cape_town_2019_project")
+library(tidyverse)
+library(lubridate)
+library(hablar)
+library(caret)
+
+```
+
+Wiki: https://github.com/neilrankinza/ix_cape_town_2019_project/wiki
+
+Build a machine learning model to:
+1. Predict who is likely to be in work (in survey 1) so that they can intervene at ‘baseline’
+2. Predict who is likely to work for more than 6 months
+
+Import the data
+```{r}
+data <- read_csv("data/raw/teaching_training_data.csv") %>% select(-X1)
+cft <- read.csv("data/raw/teaching_training_data_cft.csv") %>% select(-X)
+com <- read.csv("data/raw/teaching_training_data_com.csv") %>% select(-X)
+grit <- read.csv("data/raw/teaching_training_data_grit.csv") %>% select(-X)
+num <- read.csv("data/raw/teaching_training_data_num.csv") %>% select(-X)
+opt <- read.csv("data/raw/teaching_training_data_opt.csv") %>% select(-X)
+```
+
+Understand the data
+
+```{r}
+head(data)
+head(cft)
+head(com)
+head(grit)
+head(num)
+head(opt)
+```
+
+```{r}
+summary(data)
+```
+
+
+```{r}
+arrange(data, unid)
+```
+Split into work and no work groups
+
+```{r}
+data.work = data %>% filter(working==T) %>% select(-working)
+data.nowork = data %>% filter(working==F)
+```
+
+Problems with Work data
+1. NA start. then how???? -> remove
+```{r, echo=FALSE}
+data.work = data.work %>% filter(!is.na(job_start_date))
+```
+2. NA end only. therefore still working. replace end w survey date. Assumption that person worked till day of survey, at least
+```{r}
+data.work$job_leave_date = as_date(ifelse(is.na(data.work$job_leave_date), data.work$survey_date_month, data.work$job_leave_date))
+```
+
+
+Mutate the work data - add 2 cols, one for daysWorked, one for moreThan6Mths - boolean
+For more than 6 months col, we assume that we only care if the person has demonstrated capability of committing for 6 months
+```{r}
+data.work$daysWorked <- as.Date(as.character(data.work$job_leave_date), format="%Y-%m-%d")-
+                  as.Date(as.character(data.work$job_start_date), format="%Y-%m-%d") + 1
+data.work$moreThanSixMths = ifelse(data.work$daysWorked > 180, T, F)
+```
+
+Mutate from dob to age
+```{r}
+data.work <- data.work %>%
+ mutate(age_at_survey = interval(dob, survey_date_month)/years(1)) %>%
+ mutate(age = floor(age_at_survey))
+```
+
+Delete some redundant data (it's ok)
+```{r}
+(data.work.clean = data.work %>% select(-age_at_survey,  -daysWorked, -job_start_date ,-job_leave_date, -dob))
+```
+
+Clean the text from the financial situation columns, and feature  engineering
+
+```{r}
+data.work.clean <- data.work.clean %>%
+ mutate(fin_situ_now = parse_number(as.character(financial_situation_now))) %>%
+ mutate(fin_situ_future = parse_number(as.character(financial_situation_5years))) %>%
+ mutate(fin_situ_change = fin_situ_future - fin_situ_now)
+
+data.work.clean <- data.work.clean %>% select(-financial_situation_now, -financial_situation_5years)
+data.work.clean = arrange(data.work.clean, unid)
+```
+
+
+## CLeaning the extra data (from the personality attribute tests)
+After some exploration, we realised only opt has NAs
+
+Clean opt because it has NAs
+```{r}
+opt = na.omit(opt)
+```
+
+Grit has multiple readings per individual, visualising this, which plots a graph of number of people against how many grit readings they have
+
+```{r}
+grit_analysis  = group_by(grit, unid) %>% count() %>% group_by(n) %>% count()
+ggplot(grit_analysis, aes(x=n,y=nn)) + geom_bar(stat="identity") + xlab("Number of grit readings") + ylab("Number of people") + scale_x_continuous(breaks = round(seq(min(grit_analysis$n), max(grit_analysis$n), by =1),1))
+```
+
+
+```{r}
+opt_analysis  = group_by(opt, unid) %>% count() %>% group_by(n) %>% count()
+ggplot(opt_analysis, aes(x=n,y=nn)) + geom_bar(stat="identity") + xlab("Number of opt readings") + ylab("Number of people") + scale_x_continuous(breaks = round(seq(min(opt_analysis$n), max(opt_analysis$n), by =1),1)) 
+```
+
+```{r}
+com_analysis  = group_by(com, unid) %>% count() %>% group_by(n) %>% count()
+ggplot(com_analysis, aes(x=n,y=nn)) + geom_bar(stat="identity") + xlab("Number of com readings") + ylab("Number of people") + scale_x_continuous(breaks = round(seq(min(com_analysis$n), max(com_analysis$n), by =1),1))
+```
+
+
+```{r}
+cft_analysis  = group_by(cft, unid) %>% count() %>% group_by(n) %>% count()
+ggplot(cft_analysis, aes(x=n,y=nn)) + geom_bar(stat="identity") + xlab("Number of cft readings") + ylab("Number of people") + scale_x_continuous(breaks = round(seq(min(cft_analysis$n), max(cft_analysis$n), by =1),1))
+```
+
+```{r}
+num_analysis  = group_by(num, unid) %>% count() %>% group_by(n) %>% count()
+ggplot(num_analysis, aes(x=n,y=nn)) + geom_bar(stat="identity") + xlab("Number of num readings") + ylab("Number of people") + scale_x_continuous(breaks = round(seq(min(num_analysis$n), max(num_analysis$n), by =1),1))
+```
+
+We will just take the mean to break ties
+
+```{r}
+grit_clean = group_by(grit,unid)  %>% summarise(mean_grit_score=mean(grit_score))
+grit_clean$mean_grit_score = round(grit_clean$mean_grit_score)
+
+com_clean = group_by(com,unid)  %>% summarise(mean_com_score=mean(com_score))
+com_clean$mean_com_score = round(com_clean$mean_com_score)
+
+opt_clean = group_by(opt,unid)  %>% summarise(mean_opt_score=mean(opt_score))
+opt_clean$mean_opt_score = round(opt_clean$mean_opt_score)
+
+cft_clean = group_by(cft,unid)  %>% summarise(mean_cft_score=mean(cft_score))
+cft_clean$mean_cft_score = round(cft_clean$mean_cft_score)
+
+num_clean = group_by(num,unid)  %>% summarise(mean_num_score=mean(num_score))
+num_clean$mean_num_score = round(num_clean$mean_num_score)
+```
+
+
+merging the datasets
+```{r}
+data.work.clean.merged = data.work.clean %>% merge(opt_clean, by="unid", all.x=T) %>% merge(num_clean, by="unid", all.x=T) %>% merge(grit_clean,by="unid", all.x=T) %>% merge(cft_clean, by="unid", all.x=T) %>% merge(com_clean, by="unid", all.x=T)
+
+str(data.work.clean.merged)
+
+```
+
+
+Assuming that if NA, volunteer is no, leadershiprole is no, peoplelive is 0, peoplelive_15plus is 0, numchildren is 0, numearnincome is 0
+
+inspect the data for useless columns (firstly, remove columns with v little data)
+
+```{r}
+summary(data.work.clean.merged)
+```
+
+
+clean the data of nas
+
+```{r}
+data.work.clean3 = na.omit(data.work.clean2)
+```
+
+
+
+
+
+
+Finalising the dataset
+```{r}
+data.work.final = select(data.work.clean.merged, -survey_date_month, -fin_situ_change,     -survey_num, -unid)
+
+```
+## viewing the data
+
+```{r}
+ggplot(data.work.final, aes(y=moreThanSixMths,x=gender)) + 
+```
+
+
+
+## performing logistic regression
+
+
+```{r}
+data.work.final$moreThanSixMths =  as.factor(data.work.final$moreThanSixMths)
+
+TRAINCONTROL = trainControl(method = "cv", number = 8, verboseIter = TRUE)
+
+glm_model <- train(moreThanSixMths~., data = data.work.final, method = "rpart", trControl = TRAINCONTROL)
+glm_model
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
