@@ -43,6 +43,19 @@ head(opt)
 ```{r}
 summary(data)
 ```
+There are a lot of strange occurrences in the data
+
+1. There is a codependency between peoplelive, peoplelive_15plus, numchildren and numearnincome. However, the data does not always seem to match up / make sense. For example, unid 690 is living with more than 15 people, and 8 in the household are earning income, but she did not fill in the number of members above 15 years of age. Meanwhile there is 1 child in the household. So, there are definitely members above 15 years of age, but we can't easily impute the data. 
+
+2. Sometimes, peoplelive is less than numchildren - are these children not living at home? We do not know.
+Insight: Define terms used. Also, perform data validation to ensure logical responses (and reject illogical ones) - applies only for digital survey collection.
+
+3. Sometimes, numearnincome indicated they lived alone, but peoplelive is more than 0. Consider unid 624 and 393 where this happened (there are more examples of this.)
+
+4. Does numearnincome include the survey respondent? Even for working individuals, there are cases of the number being 0, which means some people are interpreting it to not include themselves. However, (e.g. unid 6336), numearnincome is 1, while peoplelive (excludes respondent) is 0. So the person earning income is himself. So the data is not consistently collected due to different interpretations.
+
+Insight: Clearly define all terms used in survey questions to avoid ambiguity.
+
 
 # Sort the data and rename unid to id, then order it such that id is in the front
 ```{r}
@@ -74,12 +87,15 @@ data.work$job_leave_date = as_date(ifelse(is.na(data.work$job_leave_date), data.
 ```
 
 ## Parsing peoplelive column
+Some of the data entries are "0: I live alone" or "more than 15" etc, so they have to be parsed.
+
+Do data clipping, by assuming "more than 15" is just 15.
 
 ```{r}
 data.work <- data.work %>%
- mutate(fin_situ_now = parse_number(as.character(financial_situation_now))) %>%
- mutate(fin_situ_future = parse_number(as.character(financial_situation_5years))) %>%
- mutate(fin_situ_change = fin_situ_future - fin_situ_now)
+        mutate(peoplelive = parse_number(as.character(peoplelive))) %>%
+        mutate(peoplelive = parse_number(as.character(peoplelive_15plus))) %>%
+        mutate(peoplelive = parse_number(as.character(numearnincome)))
 ```
 
 
@@ -141,13 +157,21 @@ As we can see, company_size and monthly_pay are about 90% NAs. However, these ar
 
 First, we'll fill in the rest of the columns, making some assumptions along the way.
 
-data.work$peoplelive
+Remove peoplelive_15plus because it is 80% incomplete and does not add much because we already have numearnincome to quantify number of independents in the household
+
+```{r}
+data.work = select(data.work, -peoplelive_15plus)
+```
+
 
 assume
 
+remove
+
 impute
 
-remove
+
+// later we will need to deal with company size and the pay (being strings)
 
 
 
