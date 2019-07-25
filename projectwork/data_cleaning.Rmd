@@ -19,7 +19,7 @@ Build a machine learning model to:
 1. Predict who is likely to be in work (in survey 1) so that they can intervene at ‘baseline’
 2. Predict who is likely to work for more than 6 months
 
-Import the data
+# Import the data
 ```{r, echo=FALSE}
 data <- read_csv("data/raw/teaching_training_data.csv") %>% select(-X1)
 cft <- read.csv("data/raw/teaching_training_data_cft.csv") %>% select(-X)
@@ -29,7 +29,7 @@ num <- read.csv("data/raw/teaching_training_data_num.csv") %>% select(-X)
 opt <- read.csv("data/raw/teaching_training_data_opt.csv") %>% select(-X)
 ```
 
-Understand the data
+# Understand the data
 
 ```{r}
 head(data)
@@ -44,59 +44,115 @@ head(opt)
 summary(data)
 ```
 
-
+# Sort the data and rename unid to id, then order it such that id is in the front
 ```{r}
-arrange(data, unid)
+data = arrange(data, unid)
+data = mutate(data, id = unid) %>% select(-unid)
+data = data[, c(dim(data)[2], 1:dim(data)[2]-1)]
+
 ```
-Split into work and no work groups
+# Split into work and no work groups
 
 ```{r}
 data.work = data %>% filter(working==T) %>% select(-working)
 data.nowork = data %>% filter(working==F)
 ```
 
-Problems with Work data
-1. NA start. then how???? -> remove
+# Cleanup
+
+## Handling NAs in job_start_date and/or job_leave_date
+
+1. If job_start_date is NA, remove row
 ```{r, echo=FALSE}
 data.work = data.work %>% filter(!is.na(job_start_date))
 ```
-2. NA end only. therefore still working. replace end w survey date. Assumption that person worked till day of survey, at least
+At this point, all rows have a valid job_start_date
+
+2. If job_leave_date is NA, we assume he is still working at the date of survey, hence replace job_leave_date with survey_date_month
 ```{r}
 data.work$job_leave_date = as_date(ifelse(is.na(data.work$job_leave_date), data.work$survey_date_month, data.work$job_leave_date))
 ```
 
+## Parsing peoplelive column
 
-Mutate the work data - add 2 cols, one for daysWorked, one for moreThan6Mths - boolean
-For more than 6 months col, we assume that we only care if the person has demonstrated capability of committing for 6 months
-```{r}
-data.work$daysWorked <- as.Date(as.character(data.work$job_leave_date), format="%Y-%m-%d")-
-                  as.Date(as.character(data.work$job_start_date), format="%Y-%m-%d") + 1
-data.work$moreThanSixMths = ifelse(data.work$daysWorked > 180, T, F)
-```
-
-Mutate from dob to age
 ```{r}
 data.work <- data.work %>%
- mutate(age_at_survey = interval(dob, survey_date_month)/years(1)) %>%
- mutate(age = floor(age_at_survey))
-```
-
-Delete some redundant data (it's ok)
-```{r}
-(data.work.clean = data.work %>% select(-age_at_survey,  -daysWorked, -job_start_date ,-job_leave_date, -dob))
-```
-
-Clean the text from the financial situation columns, and feature  engineering
-
-```{r}
-data.work.clean <- data.work.clean %>%
  mutate(fin_situ_now = parse_number(as.character(financial_situation_now))) %>%
  mutate(fin_situ_future = parse_number(as.character(financial_situation_5years))) %>%
  mutate(fin_situ_change = fin_situ_future - fin_situ_now)
-
-data.work.clean <- data.work.clean %>% select(-financial_situation_now, -financial_situation_5years)
-data.work.clean = arrange(data.work.clean, unid)
 ```
+
+
+
+
+# Feature Engineering
+
+1. Based on job_start_date and job_leave_date, create a column daysWorked, which gives the number of days worked
+```{r}
+data.work$daysWorked = as.Date(as.character(data.work$job_leave_date), format="%Y-%m-%d")-
+                  as.Date(as.character(data.work$job_start_date), format="%Y-%m-%d") + 1
+```
+2. Based on daysWorked, create a column modeThanSixMths indicating whether the person has worked more than 6 months
+```{r}
+data.work$moreThanSixMths = ifelse(data.work$daysWorked >= 180, T, F)
+```
+
+3. Based on date of birth (dob) and survey_date_month, create column age_at_survey (and round to the nearest integer)
+```{r}
+data.work <- data.work %>%
+ mutate(age_at_survey = interval(dob, survey_date_month)/years(1)) %>%
+ mutate(age_at_survey = round(age_at_survey))
+```
+
+4. Parse the text from the financial situation columns, and create a column fin_situ_change that gives us the expected change in financial situation
+
+```{r}
+data.work <- data.work %>%
+ mutate(fin_situ_now = parse_number(as.character(financial_situation_now))) %>%
+ mutate(fin_situ_future = parse_number(as.character(financial_situation_5years))) %>%
+ mutate(fin_situ_change = fin_situ_future - fin_situ_now)
+```
+
+Finally, let's remove the redundant data we've already used to engineer features
+```{r}
+data.work = data.work %>% select(-job_start_date ,-job_leave_date, -dob, -financial_situation_now, -financial_situation_5years)
+```
+
+# Working with incomplete data
+
+Check the number of NAs in every column, and calculate percentage of na's in column
+
+```{r}
+na_count = sapply(data.work, function(y) sum(length(which(is.na(y)))))
+na_count = data.frame(na_count)
+dim(na_count)
+
+# create column from index
+names <- rownames(na_count)
+# nullify index
+rownames(na_count) <- NULL
+na_count <- cbind(names,na_count)
+
+na_count = mutate(na_count, percentageNA = na_count/dim(data.work)[1])
+na_count = arrange(na_count, desc(percentageNA))
+na_count
+```
+As we can see, company_size and monthly_pay are about 90% NAs. However, these are likely very important in determining whether a person is likely to stay at their job (for instance, if you're paid well, you're incentivised to stay on and work hard.) So, we will want to impute the data for this.
+
+First, we'll fill in the rest of the columns, making some assumptions along the way.
+
+data.work$peoplelive
+
+assume
+
+impute
+
+remove
+
+
+
+
+
 
 
 ## CLeaning the extra data (from the personality attribute tests)
