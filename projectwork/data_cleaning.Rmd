@@ -174,11 +174,22 @@ Assume that:
 
 
 
-
+Visualise the relation between numearnincome and peoplelive
 ```{r}
 ggplot(data.work, aes(x=numearnincome, y=peoplelive)) + geom_point() + geom_count() + geom_abline(slope=1, intercept=0)+ scale_size_continuous(range = c(1, 8))
 ```
+We will assume whether numearnincome include self or not by taking the most commonly used interpretation of the survey respondents.
+People who assume numearnincome does not include self = people indicating 0 numearnincome + 
+People who a
 
+Whether numearnincome include self
+
+The question is, do more people believe numearnincome includes themselves or not
+
+2 lines:
+
+1. y=x
+2. y=x-1
 
 assume
 
