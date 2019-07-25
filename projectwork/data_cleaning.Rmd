@@ -56,6 +56,8 @@ Insight: Define terms used. Also, perform data validation to ensure logical resp
 
 Insight: Clearly define all terms used in survey questions to avoid ambiguity.
 
+5. There are some people who are not currently working (based on the job_leave_date being before survey date) but working is True.
+
 
 # Sort the data and rename unid to id, then order it such that id is in the front
 ```{r}
@@ -94,8 +96,8 @@ Do data clipping, by assuming "more than 15" is just 15.
 ```{r}
 data.work <- data.work %>%
         mutate(peoplelive = parse_number(as.character(peoplelive))) %>%
-        mutate(peoplelive = parse_number(as.character(peoplelive_15plus))) %>%
-        mutate(peoplelive = parse_number(as.character(numearnincome)))
+        mutate(peoplelive_15plus = parse_number(as.character(peoplelive_15plus))) %>%
+        mutate(numearnincome = parse_number(as.character(numearnincome)))
 ```
 
 
@@ -149,7 +151,7 @@ names <- rownames(na_count)
 rownames(na_count) <- NULL
 na_count <- cbind(names,na_count)
 
-na_count = mutate(na_count, percentageNA = na_count/dim(data.work)[1])
+na_count = mutate(na_count, percentageNA = 100*na_count/dim(data.work)[1])
 na_count = arrange(na_count, desc(percentageNA))
 na_count
 ```
@@ -163,12 +165,32 @@ Remove peoplelive_15plus because it is 80% incomplete and does not add much beca
 data.work = select(data.work, -peoplelive_15plus)
 ```
 
+Assume that:
+1. if givemoney_yes, volunteer, leadershiprole, anygrant is NA, it is no
+2. if anyhhincome is NA, it is yes (because we are working with data for people who are working)
+3. if peoplelive is NA, it is 0
+4. 
+
+
+
+
+
+```{r}
+ggplot(data.work, aes(x=numearnincome, y=peoplelive)) + geom_point() + geom_count() + geom_abline(slope=1, intercept=0)+ scale_size_continuous(range = c(1, 8))
+```
+
 
 assume
 
 remove
+ppl15plus
+
 
 impute
+
+province
+company_size
+monthly_pay
 
 
 // later we will need to deal with company size and the pay (being strings)
