@@ -21,7 +21,6 @@ Build a machine learning model to:
 
 # Import the data
 ```{r, echo=FALSE}
-setwd("~/Documents/4. GitHub/harambee-data-analysis")
 data <- read_csv("data/raw/teaching_training_data.csv") %>% select(-X1)
 cft <- read.csv("data/raw/teaching_training_data_cft.csv") %>% select(-X)
 com <- read.csv("data/raw/teaching_training_data_com.csv") %>% select(-X)
@@ -60,11 +59,8 @@ Insight: Clearly define all terms used in survey questions to avoid ambiguity.
 5. There are some people who are not currently working (based on the job_leave_date being before survey date) but working is True.
 
 
-# Sort the data and rename unid to id, then order it such that id is in the front
 ```{r}
 data = arrange(data, unid)
-data = mutate(data, id = unid) %>% select(-unid)
-data = data[, c(dim(data)[2], 1:dim(data)[2]-1)]
 
 ```
 # Split into work and no work groups
@@ -160,68 +156,104 @@ As we can see, company_size and monthly_pay are about 90% NAs. However, these ar
 
 First, we'll fill in the rest of the columns, making some assumptions along the way.
 
+## Removal of columns
+
 Remove peoplelive_15plus because it is 80% incomplete and does not add much because we already have numearnincome to quantify number of independents in the household
 
+Also remove anyhhincome because it should all be TRUE given that data.work is a subset of the dataset that is working, so they should receive household income.
+Note that the data doesn't all state TRUE so there was probably an issue with data collection here (in terms of clearly stating what household income means)
+
+
 ```{r}
-data.work = select(data.work, -peoplelive_15plus)
+data.work = select(data.work, -peoplelive_15plus, -anyhhincome)
+```
+
+## Removal of rows
+
+Remove rows where gender is NA, because there are only 2 such datapoints
+Remove rows where age_at_survey is NA because there are only 20 such rows (out of almost 16000)
+```{r}
+data.work = filter(data.work, !is.na(data.work$gender))
+data.work = filter(data.work, !is.na(data.work$age_at_survey))
+
 ```
 
 Assume that:
-1. if givemoney_yes, volunteer, leadershiprole, anygrant is NA, it is no
-2. if anyhhincome is NA, it is yes (because we are working with data for people who are working)
-3. if peoplelive is NA, it is 0
-4. 
+1. if givemoney_yes, volunteer, leadershiprole, anygrant is NA, it is no (FALSE)
+2. if peoplelive, numchildren, numearnincome is NA, it is 0
 
+```{r}
+data.work$givemoney_yes = ifelse(is.na(data.work$givemoney_yes), FALSE, data.work$givemoney_yes)
+data.work$volunteer = ifelse(is.na(data.work$volunteer), FALSE, data.work$volunteer)
+data.work$leadershiprole = ifelse(is.na(data.work$leadershiprole), FALSE, data.work$leadershiprole)
+data.work$anygrant = ifelse(is.na(data.work$anygrant), FALSE, data.work$anygrant)
 
+data.work$peoplelive = ifelse(is.na(data.work$peoplelive), 0, data.work$peoplelive)
+data.work$numchildren = ifelse(is.na(data.work$numchildren), 0, data.work$numchildren)
+data.work$numearnincome = ifelse(is.na(data.work$numearnincome), 0, data.work$numearnincome)
+```
 
 
 Visualise the relation between numearnincome and peoplelive
 ```{r}
-ggplot(data.work, aes(x=numearnincome, y=peoplelive)) + geom_point() + geom_count() + geom_abline(slope=1, intercept=0)+ scale_size_continuous(range = c(1, 8))
+ggplot(data.work, aes(x=numearnincome, y=peoplelive)) + geom_point() + geom_count() + geom_abline(slope=1, intercept=-1)+scale_size_continuous(range = c(1, 8))
 ```
 We will assume whether numearnincome include self or not by taking the most commonly used interpretation of the survey respondents.
 a = People who definitely assumed that numearnincome does not include self = people indicating 0 numearnincome
-b = People who definitely assumed that numearnincome include self = numearnincome exceeds peoplelive by 1 (people who lies on the line shown below)
+b = People who definitely assumed that numearnincome include self = numearnincome exceeds peoplelive by 1 (people who lies on the line y=x-1 shown above)
 From graph, a>b.
-
-```{r}
-ggplot(data.work, aes(x=numearnincome, y=peoplelive)) + geom_point() + geom_count() + geom_abline(slope=1, intercept=-1)+ scale_size_continuous(range = c(1, 8))
-```
-
 
 Hence we should assume that numearnincome does not include self and correct the data by deducting 1 from b's numearnincome.
 
 ```{r}
-
+data.work$numearnincome = ifelse(data.work$numearnincome - data.work$peoplelive == 1,data.work$numearnincome-1,data.work$numearnincome)
 ```
 
+Now we can see that there are no datapoints lying on the line y=x-1
+```{r}
+ggplot(data.work, aes(x=numearnincome, y=peoplelive)) + geom_point() + geom_count() + geom_abline(slope=1, intercept=-1)+ scale_size_continuous(range = c(1, 8))
+```
 
-We also removed all rows of data in which numearnincome>peoplelive
+We then removed all rows of data in which numearnincome > peoplelive (datapoints below the line)
 
-Insight: BUT logically speaking since the survey is for people both working and not working, numearnincome was meant to contain self from surveyor's perspective. But this was not made clear to the survey respondents. 
+```{r}
+data.work = filter(data.work, data.work$numearnincome <= data.work$peoplelive)
+```
+
+Now there are no more points on or below the line
+```{r}
+ggplot(data.work, aes(x=numearnincome, y=peoplelive)) + geom_point() + geom_count() + geom_abline(slope=1, intercept=0)+ scale_size_continuous(range = c(1, 8))
+```
+
+Insight: BUT logically speaking since the survey is for people both working and not working, numearnincome was meant to contain self from surveyor's perspective. But this was not made clear to the survey respondents.
 
 
+Check the number of NAs in every column, and calculate percentage of na's in column
 
-Whether numearnincome include self
+```{r}
+na_count = sapply(data.work, function(y) sum(length(which(is.na(y)))))
+na_count = data.frame(na_count)
+dim(na_count)
 
-The question is, do more people believe numearnincome includes themselves or not
+# create column from index
+names <- rownames(na_count)
+# nullify index
+rownames(na_count) <- NULL
+na_count <- cbind(names,na_count)
 
-2 lines:
-
-1. y=x
-2. y=x-1
-
-assume
-
-remove
-ppl15plus
-
+na_count = mutate(na_count, percentageNA = 100*na_count/dim(data.work)[1])
+na_count = arrange(na_count, desc(percentageNA))
+na_count
+```
 
 impute
+- fin_situ
+- province
+- company_size
+- monthly_pay
 
-province
-company_size
-monthly_pay
+## TODO
+
 
 
 // later we will need to deal with company size and the pay (being strings)
@@ -291,26 +323,23 @@ num_clean$mean_num_score = round(num_clean$mean_num_score)
 
 merging the datasets
 ```{r}
-data.work.clean.merged = data.work.clean %>% merge(opt_clean, by="unid", all.x=T) %>% merge(num_clean, by="unid", all.x=T) %>% merge(grit_clean,by="unid", all.x=T) %>% merge(cft_clean, by="unid", all.x=T) %>% merge(com_clean, by="unid", all.x=T)
+data.work.merged = data.work %>% merge(opt_clean, by="unid", all.x=T) %>% merge(num_clean, by="unid", all.x=T) %>% merge(grit_clean,by="unid", all.x=T) %>% merge(cft_clean, by="unid", all.x=T) %>% merge(com_clean, by="unid", all.x=T)
 
-str(data.work.clean.merged)
+summary(as.factor(data.work.merged$province))
 
 ```
 
-
-Assuming that if NA, volunteer is no, leadershiprole is no, peoplelive is 0, peoplelive_15plus is 0, numchildren is 0, numearnincome is 0
-
-inspect the data for useless columns (firstly, remove columns with v little data)
+remove the columns company_size and monthly_pay
 
 ```{r}
-summary(data.work.clean.merged)
+data.work.merged = select(data.work.merged, -company_size, -monthly_pay)
 ```
 
 
 clean the data of nas
 
 ```{r}
-data.work.clean3 = na.omit(data.work.clean2)
+data.work.merged2 = na.omit(data.work.merged)
 ```
 
 
@@ -320,13 +349,7 @@ data.work.clean3 = na.omit(data.work.clean2)
 
 Finalising the dataset
 ```{r}
-data.work.final = select(data.work.clean.merged, -survey_date_month, -fin_situ_change,     -survey_num, -unid)
-
-```
-## viewing the data
-
-```{r}
-ggplot(data.work.final, aes(y=moreThanSixMths,x=gender)) + 
+data.work.final = select(data.work.merged2, -survey_date_month, -fin_situ_change,-survey_num, -unid)
 ```
 
 
@@ -335,15 +358,40 @@ ggplot(data.work.final, aes(y=moreThanSixMths,x=gender)) +
 
 
 ```{r}
-data.work.final$moreThanSixMths =  as.factor(data.work.final$moreThanSixMths)
+cols = c("province","volunteer", "leadershiprole", "anygrant", "gender", "moreThanSixMths")
+data.work.final[,cols] <- lapply(data.work.final[,cols],as.factor)
 
-TRAINCONTROL = trainControl(method = "cv", number = 8, verboseIter = TRUE)
 
-glm_model <- train(moreThanSixMths~., data = data.work.final, method = "rpart", trControl = TRAINCONTROL)
-glm_model
+df = data.work.final
+# split the data
 
+set.seed(3456)
+trainIndex <- createDataPartition(df$moreThanSixMths, p = .7, 
+                                  list = FALSE, 
+                                  times = 1)
+
+
+dfTrain <- df[ trainIndex,]
+dfTest  <- df[-trainIndex,]
+
+summary(dfTrain)
+
+
+TRAINCONTROL = trainControl(method = "cv", number = 5, verboseIter = TRUE)
+
+model <- train(moreThanSixMths~., data = dfTrain, method = "glm", trControl = TRAINCONTROL)
+model
 ```
 
+```{r}
+# test model on training data
+my_results <- predict(model, dfTest)
+
+table(my_results, dfTest$moreThanSixMths)
+
+# make confusion table
+confusionMatrix(table(my_results, dfTest$moreThanSixMths))
+```
 
 
 
