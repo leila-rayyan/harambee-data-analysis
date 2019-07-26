@@ -21,6 +21,7 @@ Build a machine learning model to:
 
 # Import the data
 ```{r, echo=FALSE}
+setwd("~/Documents/4. GitHub/harambee-data-analysis")
 data <- read_csv("data/raw/teaching_training_data.csv") %>% select(-X1)
 cft <- read.csv("data/raw/teaching_training_data_cft.csv") %>% select(-X)
 com <- read.csv("data/raw/teaching_training_data_com.csv") %>% select(-X)
@@ -335,41 +336,50 @@ remove the columns company_size and monthly_pay
 data.work.merged = select(data.work.merged, -company_size, -monthly_pay)
 ```
 
+```{r}
+na_count = sapply(data.work.merged, function(y) sum(length(which(is.na(y)))))
+na_count = data.frame(na_count)
+dim(na_count)
+
+# create column from index
+names <- rownames(na_count)
+# nullify index
+rownames(na_count) <- NULL
+na_count <- cbind(names,na_count)
+
+na_count = mutate(na_count, percentageNA = 100*na_count/dim(data.work.merged)[1])
+na_count = arrange(na_count, desc(percentageNA))
+na_count
+```
+
 
 clean the data of nas
 
 ```{r}
-data.work.merged2 = na.omit(data.work.merged)
+cols = c("province","volunteer", "leadershiprole", "anygrant", "gender", "moreThanSixMths")
+data.work.merged[,cols] <- lapply(data.work.merged[,cols],as.factor)
+
+data.work.rm.rows = select(na.omit(data.work.merged), -daysWorked, -survey_date_month, -survey_num, -unid)
+
+data.work.rm.columns = select(data.work.merged, -mean_num_score, -province, -mean_com_score, -fin_situ_now, -fin_situ_future, -fin_situ_change, -mean_opt_score, -mean_cft_score, -daysWorked, -survey_date_month, -survey_num, -unid)
 ```
-
-
-
-
 
 
 Finalising the dataset
 ```{r}
-data.work.final = select(data.work.merged2, -survey_date_month, -fin_situ_change,-survey_num, -unid)
+data.work.final = data.work.rm.columns
 ```
-
-
 
 ## performing logistic regression
 
-
 ```{r}
-cols = c("province","volunteer", "leadershiprole", "anygrant", "gender", "moreThanSixMths")
-data.work.final[,cols] <- lapply(data.work.final[,cols],as.factor)
-
-
 df = data.work.final
 # split the data
 
 set.seed(3456)
-trainIndex <- createDataPartition(df$moreThanSixMths, p = .7, 
+trainIndex <- createDataPartition(df$moreThanSixMths, p = .8, 
                                   list = FALSE, 
                                   times = 1)
-
 
 dfTrain <- df[ trainIndex,]
 dfTest  <- df[-trainIndex,]
@@ -379,7 +389,9 @@ summary(dfTrain)
 
 TRAINCONTROL = trainControl(method = "cv", number = 5, verboseIter = TRUE)
 
-model <- train(moreThanSixMths~., data = dfTrain, method = "glm", trControl = TRAINCONTROL)
+model <- train(moreThanSixMths~., data = dfTrain, method = "svmLinearWeights", trControl = TRAINCONTROL)
+
+?train
 model
 ```
 
@@ -391,6 +403,8 @@ table(my_results, dfTest$moreThanSixMths)
 
 # make confusion table
 confusionMatrix(table(my_results, dfTest$moreThanSixMths))
+
+summary(model)
 ```
 
 
