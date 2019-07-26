@@ -21,6 +21,7 @@ Build a machine learning model to:
 
 # Import the data
 ```{r, echo=FALSE}
+setwd("~/Documents/4. GitHub/harambee-data-analysis")
 data <- read_csv("data/raw/teaching_training_data.csv") %>% select(-X1)
 cft <- read.csv("data/raw/teaching_training_data_cft.csv") %>% select(-X)
 com <- read.csv("data/raw/teaching_training_data_com.csv") %>% select(-X)
@@ -179,8 +180,27 @@ Visualise the relation between numearnincome and peoplelive
 ggplot(data.work, aes(x=numearnincome, y=peoplelive)) + geom_point() + geom_count() + geom_abline(slope=1, intercept=0)+ scale_size_continuous(range = c(1, 8))
 ```
 We will assume whether numearnincome include self or not by taking the most commonly used interpretation of the survey respondents.
-People who assume numearnincome does not include self = people indicating 0 numearnincome + 
-People who a
+a = People who definitely assumed that numearnincome does not include self = people indicating 0 numearnincome
+b = People who definitely assumed that numearnincome include self = numearnincome exceeds peoplelive by 1 (people who lies on the line shown below)
+From graph, a>b.
+
+```{r}
+ggplot(data.work, aes(x=numearnincome, y=peoplelive)) + geom_point() + geom_count() + geom_abline(slope=1, intercept=-1)+ scale_size_continuous(range = c(1, 8))
+```
+
+
+Hence we should assume that numearnincome does not include self and correct the data by deducting 1 from b's numearnincome.
+
+```{r}
+
+```
+
+
+We also removed all rows of data in which numearnincome>peoplelive
+
+Insight: BUT logically speaking since the survey is for people both working and not working, numearnincome was meant to contain self from surveyor's perspective. But this was not made clear to the survey respondents. 
+
+
 
 Whether numearnincome include self
 
