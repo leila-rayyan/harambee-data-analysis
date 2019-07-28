@@ -10,7 +10,7 @@ library(tidyverse)
 library(lubridate)
 library(hablar)
 library(caret)
-
+library(mice)
 ```
 
 Wiki: https://github.com/neilrankinza/ix_cape_town_2019_project/wiki
@@ -21,7 +21,6 @@ Build a machine learning model to:
 
 # Import the data
 ```{r, echo=FALSE}
-setwd("~/Documents/4. GitHub/harambee-data-analysis")
 data <- read_csv("data/raw/teaching_training_data.csv") %>% select(-X1)
 cft <- read.csv("data/raw/teaching_training_data_cft.csv") %>% select(-X)
 com <- read.csv("data/raw/teaching_training_data_com.csv") %>% select(-X)
@@ -179,6 +178,9 @@ data.work = filter(data.work, !is.na(data.work$age_at_survey))
 
 ```
 
+
+## Assumptions
+
 Assume that:
 1. if givemoney_yes, volunteer, leadershiprole, anygrant is NA, it is no (FALSE)
 2. if peoplelive, numchildren, numearnincome is NA, it is 0
@@ -246,22 +248,6 @@ na_count = mutate(na_count, percentageNA = 100*na_count/dim(data.work)[1])
 na_count = arrange(na_count, desc(percentageNA))
 na_count
 ```
-
-impute
-- fin_situ
-- province
-- company_size
-- monthly_pay
-
-## TODO
-
-
-
-// later we will need to deal with company size and the pay (being strings)
-
-
-
-
 
 
 
@@ -336,6 +322,7 @@ remove the columns company_size and monthly_pay
 data.work.merged = select(data.work.merged, -company_size, -monthly_pay)
 ```
 
+Count the number of NAs per column
 ```{r}
 na_count = sapply(data.work.merged, function(y) sum(length(which(is.na(y)))))
 na_count = data.frame(na_count)
@@ -353,21 +340,38 @@ na_count
 ```
 
 
-clean the data of nas
 
+Convert columns to factors
 ```{r}
 cols = c("province","volunteer", "leadershiprole", "anygrant", "gender", "moreThanSixMths")
 data.work.merged[,cols] <- lapply(data.work.merged[,cols],as.factor)
-
-data.work.rm.rows = select(na.omit(data.work.merged), -daysWorked, -survey_date_month, -survey_num, -unid)
-
-data.work.rm.columns = select(data.work.merged, -mean_num_score, -province, -mean_com_score, -fin_situ_now, -fin_situ_future, -fin_situ_change, -mean_opt_score, -mean_cft_score, -daysWorked, -survey_date_month, -survey_num, -unid)
 ```
+
+
+## Impute the remaining missing data
+
+
+```{r}
+
+tempData <- mice(data.work.merged,m=5, meth='pmm',seed=500)
+summary(tempData)
+
+tempData$imp$fin_situ_future
+
+completedData <- complete(tempData,1)
+```
+
+```{r}
+# data.work.rm.rows = select(na.omit(data.work.merged),  -survey_date_month, -survey_num, -unid)
+
+#data.work.rm.columns = select(data.work.merged, -mean_num_score, -province, -mean_com_score, -fin_situ_now, -fin_situ_future, -fin_situ_change, -mean_opt_score, -mean_cft_score, -daysWorked, -survey_date_month, -survey_num, -unid)
+```
+
 
 
 Finalising the dataset
 ```{r}
-data.work.final = data.work.rm.columns
+data.work.final = select(completedData, -survey_date_month, -survey_num, -unid)
 ```
 
 ## performing logistic regression
@@ -390,8 +394,6 @@ summary(dfTrain)
 TRAINCONTROL = trainControl(method = "cv", number = 5, verboseIter = TRUE)
 
 model <- train(moreThanSixMths~., data = dfTrain, method = "svmLinearWeights", trControl = TRAINCONTROL)
-
-?train
 model
 ```
 
