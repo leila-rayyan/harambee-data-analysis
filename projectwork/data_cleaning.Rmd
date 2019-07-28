@@ -11,6 +11,9 @@ library(lubridate)
 library(hablar)
 library(caret)
 library(mice)
+library(party)
+library(partykit)
+library(rattle)
 ```
 
 Wiki: https://github.com/neilrankinza/ix_cape_town_2019_project/wiki
@@ -21,6 +24,7 @@ Build a machine learning model to:
 
 # Import the data
 ```{r, echo=FALSE}
+setwd("~/Documents/4. GitHub/harambee-data-analysis")
 data <- read_csv("data/raw/teaching_training_data.csv") %>% select(-X1)
 cft <- read.csv("data/raw/teaching_training_data_cft.csv") %>% select(-X)
 com <- read.csv("data/raw/teaching_training_data_com.csv") %>% select(-X)
@@ -316,10 +320,10 @@ summary(as.factor(data.work.merged$province))
 
 ```
 
-remove the columns company_size and monthly_pay
+remove the columns company_size and monthly_pay (removed)
 
 ```{r}
-data.work.merged = select(data.work.merged, -company_size, -monthly_pay)
+# data.work.merged = select(data.work.merged, -company_size, -monthly_pay)
 ```
 
 Count the number of NAs per column
@@ -339,39 +343,57 @@ na_count = arrange(na_count, desc(percentageNA))
 na_count
 ```
 
-
-
 Convert columns to factors
 ```{r}
-cols = c("province","volunteer", "leadershiprole", "anygrant", "gender", "moreThanSixMths")
+cols = c("province","volunteer", "leadershiprole", "anygrant", "gender", "moreThanSixMths", "company_size", "monthly_pay")
 data.work.merged[,cols] <- lapply(data.work.merged[,cols],as.factor)
 ```
 
-
 ## Impute the remaining missing data
 
-
 ```{r}
-
-tempData <- mice(data.work.merged,m=5, meth='pmm',seed=500)
+tempData <- mice(data.work.merged,m=5, meth='pmm',seed=500, maxit=2)
 summary(tempData)
 
 tempData$imp$fin_situ_future
 
-completedData <- complete(tempData,1)
+data.work.imp <- complete(tempData,1)
 ```
 
+All NAs have been removed.
 ```{r}
+na_count = sapply(data.work.imp, function(y) sum(length(which(is.na(y)))))
+na_count = data.frame(na_count)
+dim(na_count)
+
+# create column from index
+names <- rownames(na_count)
+# nullify index
+rownames(na_count) <- NULL
+na_count <- cbind(names,na_count)
+
+na_count = mutate(na_count, percentageNA = 100*na_count/dim(data.work.imp)[1])
+na_count = arrange(na_count, desc(percentageNA))
+na_count
+```
+
+
+```{r}
+# List of possible datasets for training
+
+# data.work.imp
+
 # data.work.rm.rows = select(na.omit(data.work.merged),  -survey_date_month, -survey_num, -unid)
 
 #data.work.rm.columns = select(data.work.merged, -mean_num_score, -province, -mean_com_score, -fin_situ_now, -fin_situ_future, -fin_situ_change, -mean_opt_score, -mean_cft_score, -daysWorked, -survey_date_month, -survey_num, -unid)
 ```
 
 
-
 Finalising the dataset
 ```{r}
-data.work.final = select(completedData, -daysWorked,-survey_date_month, -survey_num, -unid)
+# change the dataset accordingly to test
+
+data.work.final = select(data.work.imp, -daysWorked, -survey_date_month, -survey_num, -unid)
 ```
 
 ## performing logistic regression
@@ -380,7 +402,7 @@ data.work.final = select(completedData, -daysWorked,-survey_date_month, -survey_
 df = data.work.final
 # split the data
 
-set.seed(3456)
+set.seed(5)
 trainIndex <- createDataPartition(df$moreThanSixMths, p = .8, 
                                   list = FALSE, 
                                   times = 1)
@@ -393,34 +415,127 @@ summary(dfTrain)
 
 TRAINCONTROL = trainControl(method = "cv", number = 5, verboseIter = TRUE)
 
-model <- train(moreThanSixMths~., data = dfTrain, method = "svmLinearWeights", trControl = TRAINCONTROL)
-model
+model.glm <- train(moreThanSixMths~., data = dfTrain, method = "glm", trControl = TRAINCONTROL)
+model.glm
 ```
 
 ```{r}
 # test model on training data
-my_results <- predict(model, dfTest)
+my_results.glm <- predict(model.glm, dfTest)
 
-table(my_results, dfTest$moreThanSixMths)
+table(my_results.glm, dfTest$moreThanSixMths)
 
 # make confusion table
-confusionMatrix(table(my_results, dfTest$moreThanSixMths))
+confusionMatrix(table(my_results.glm, dfTest$moreThanSixMths))
 
-summary(model)
+(summary(model.glm))
 ```
 
+Insight: Retrain model with only statistically significant variable (company_size, volunteer, leadershiprole, numchildren, numearnincome, age_at_survey, mean_num_score)
+
+```{r}
+model.glm_refined <- train(moreThanSixMths ~ company_size + volunteer + leadershiprole + numchildren + numearnincome + age_at_survey + mean_num_score, data = dfTrain, method = "glm", trControl = TRAINCONTROL)
+model.glm_refined
+```
+
+```{r}
+# test model on training data
+my_results.glm_refined <- predict(model.glm_refined, dfTest)
+
+table(my_results.glm_refined, dfTest$moreThanSixMths)
+
+# make confusion table
+confusionMatrix(table(my_results.glm_refined, dfTest$moreThanSixMths))
+```
+
+Results for glm: 
+Accuracy : 0.596
+Kappa : 0.185
+Sensitivity : 0.6860
+Specificity : 0.4977
 
 
+## performing decision tree
+
+```{r}
+model.rpart <- train(moreThanSixMths ~ ., data = dfTrain, method = "rpart", trControl = TRAINCONTROL)
+model.rpart
+```
+
+```{r}
+# test model on training data
+my_results.rpart <- predict(model.rpart, dfTest)
+
+table(my_results.rpart, dfTest$moreThanSixMths)
+
+# make confusion table
+confusionMatrix(table(my_results.rpart, dfTest$moreThanSixMths))
+
+fancyRpartPlot(model.rpart$finalModel)
+```
+
+Results for rpart: 
+Accuracy : 0.5828        
+Kappa : 0.1586
+Sensitivity : 0.6685
+Specificity : 0.4891
 
 
+## performing SVM
 
+```{r}
+model.svm <- train(moreThanSixMths ~ ., data = dfTrain, method = "svmRadial", trControl = TRAINCONTROL)
+model.svm
+```
 
+```{r}
+# test model on training data
+my_results.svm <- predict(model.svm, dfTest)
 
+table(my_results.svm, dfTest$moreThanSixMths)
 
+# make confusion table
+confusionMatrix(table(my_results.svm, dfTest$moreThanSixMths))
+```
 
+Results for svm: 
+Accuracy : 0.5805     
+Kappa : 0.1529
+Sensitivity : 0.6812 
+Specificity : 0.4706
 
+## performing KNN
 
+```{r}
+model.knn <- train(moreThanSixMths ~ ., data = dfTrain, method = "knn", trControl = TRAINCONTROL)
+model.knn
+```
 
+```{r}
+# test model on training data
+my_results.knn <- predict(model.knn, dfTest)
 
+table(my_results.knn, dfTest$moreThanSixMths)
 
+# make confusion table
+confusionMatrix(table(my_results.knn, dfTest$moreThanSixMths))
+```
 
+Results for knn: 
+Accuracy : 0.5619
+Kappa : 0.1234
+Sensitivity : 0.5644
+Specificity : 0.5592
+
+#Conclusions
+1. Logistic regression is the best model with the following statistics
+Accuracy : 0.596
+Kappa : 0.185
+Sensitivity : 0.6860
+Specificity : 0.4977
+2. Significant variables include company_size, volunteer, leadershiprole, numchildren, numearnincome, age_at_survey, mean_num_score
+3. Better data collection
+
+# Further explorations
+1. Explore cleaning the data differently
+2. Try ensamble and deep learning
