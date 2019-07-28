@@ -371,7 +371,7 @@ completedData <- complete(tempData,1)
 
 Finalising the dataset
 ```{r}
-data.work.final = select(completedData, -survey_date_month, -survey_num, -unid)
+data.work.final = select(completedData, -daysWorked,-survey_date_month, -survey_num, -unid)
 ```
 
 ## performing logistic regression
