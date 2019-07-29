@@ -1,0 +1,155 @@
+---
+title: "PROJECT Part 1"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+Names: Leila Rayyan, Gaby Francois, Shiv Ghodia, Jenn Zhou
+### QUESTION ###
+Predict who is likely to be in work (in survey 1) so that they can intervene at ‘baseline’.
+```{}
+### Load in all data and packages ###                              
+library(ggplot2)
+library(tidyverse)
+library(caret)
+library(lubridate)
+library(dplyr)
+library(vcdExtra)
+library(ISLR)
+library(rpart)
+library(party)
+library(partykit)
+library(rattle)
+library(exegetic)                               
+library(e1071)
+library(mlbench)
+library(Metrics)
+df <- read.csv("data/raw/teaching_training_data.csv")
+datacom = read.csv("data/raw/teaching_training_data_com.csv")
+datanum = read.csv("data/raw/teaching_training_data_num.csv")
+datagrit = read.csv("data/raw/teaching_training_data_grit.csv")
+dataopt = read.csv("data/raw/teaching_training_data_opt.csv")
+datacft = read.csv("data/raw/teaching_training_data_cft.csv")
+
+```
+
+### Merge Data ###
+
+```{}
+surv1 = filter(df, survey_num==1) #take out only survey 1 data because that's what questions asks for
+df2 = merge(surv1, datacom, by="unid")
+df2 = df2 %>% distinct()
+df3 = merge(df2, datanum, by="unid")
+df3 = df3[,-2] %>% distinct()
+#Take out the random index columns added 
+datagrit = datagrit[,-1]
+dataopt = dataopt[,-1]
+datacft = datacft[,-1]
+df4 = merge(df3, datagrit, by="unid")
+df4 = df4[,-c(23,25)]  %>% distinct() #take out stray columns added
+df5 = merge(df4, dataopt, by="unid")
+df5 = unique(df5)
+data = merge(df5, datacft, by="unid")
+data = unique(data) #take out any identical rows
+```
+### Clean Data ###
+```{}
+#Add Age data
+data <- data %>% 
+  mutate(age_at_survey = interval(dob, survey_date_month)/years(1)) %>% 
+  mutate(age = floor(age_at_survey))
+view(data)
+#Drop unnecessary columns
+data = select(data, -monthly_pay, -company_size, -job_start_date, -job_leave_date)
+#Drop: company size column
+#monthly pay
+#job leave and start date
+data2 = select(data, -unid, -dob, -survey_date_month, -peoplelive_15plus)
+data3 = select(data2, -province)
+#Take out survey_num column because it is 1 for all the data set. 
+d = select(data3, -survey_num)
+#Take out Na's
+d = na.omit(d)
+
+```
+### Visualizing data ###
+```{echo=TRUE}
+#historgram of the age of working people
+workingpeople  = filter(d, working==T)
+ggplot(workingpeople, aes(x = age)) + geom_histogram()
+mean(workingpeople$age)
+#histogram of the age of nonworking people
+nonworking = filter(d, working==F)
+ggplot(nonworking, aes(x = age,)) + geom_histogram()
+mean(nonworking$age)
+
+#bar plot of genders
+ggplot(d, aes(x=working)) + geom_bar(aes(fill=gender), position = "stack")
+# More females working than men
+# Even split of genders among unemployed people
+
+#bar plot of volunteers in working and non working
+ggplot(d, aes(x=working)) + geom_bar(aes(fill=volunteer), position = "stack")
+#Even split
+
+```
+This shows that mean age for working and nonworking people is around the same. 
+Therefore, age would probably be a bad predictor of working status. Will double check later.
+### Build Trainig Model ###
+```{}
+# y variable = working
+# x variables = everything else (for now)
+set.seed(17)
+train_index = sample(c(T, F), nrow(d), prob = c(0.8, 0.2), replace = TRUE)
+d_train <- d[train_index,]
+d_test <- d[-train_index,]
+
+fit <- glm(working~ ., d_train, family = binomial)
+summary(fit)
+# Take out leadership role, people live, and any grant, and grit score because not sig
+d2  = select(d_train, -leadershiprole, -peoplelive, -anygrant, -anyhhincome, -grit_score)
+
+fit2 <- glm(working~ ., d2, family = binomial)
+summary(fit2)
+
+#check model rmse
+rmse(d3$working, test)
+#low RMSE! GOOD
+```
+### Test Model ###
+```{}
+d3 = select(d_test,-leadershiprole, -peoplelive, -anygrant, -anyhhincome, -grit_score )
+test = predict(fit2, d3, type="response")
+predictions = ifelse( test> 0.5, "working", "not")
+```
+### Confusion Matrix ###
+```{}
+table(predictions, d3$working)
+#shows high number of false positives
+```
+### Check Accuracy ###
+```{}
+TN = 19441
+FN = 4877
+FP = 4
+TP = 14
+accuracy    = (TP + TN) / (TP + FN + TN + FP) #accuracy is pretty high which is good
+sensitivity = TP / (TP + FN) #very low
+specificity = TN / (TN + FP) # very high
+
+```
+
+### Insights ###
+Our model is not the best model. We had to take out a lot of columns and rows before we could work with the data due to an excessive amount of NA's. We chose not to impute because of the large number of NA's. Our imputations would not have been very accurate. There was barely any data to work with. 
+So, first, I would suggest that the data collectors keep collecting mroe data to fill out the data set. 
+Second, it is clear that not all of the data is useful. They only need to collect data on:
+ "gender"                     "working"                    "volunteer"                 
+ "numchildren"                "numearnincome"              "financial_situation_now"   
+ "financial_situation_5years" "givemoney_yes"              "com_score"                 
+ "num_score"                  "opt_score"                  "cft_score"                 
+ "age_at_survey"              "age"                       
+ These are the categories that best predict working or not working. 
+ Since out data has a high number of false negatives and very low number of true positives, it gave mostly FALSES when asked to predict working of not working. Therefore, I hesitate to make any insights, as this model is not a good predictor. 
+In the future, it would be best to use a more filled out data set or another method of analysis not yet covered in class. 
